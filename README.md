@@ -1,2 +1,2 @@
 # seame_brain
-edit brain project for ros communication
+customizing brain project to communicate with ROS for SEA:ME team
