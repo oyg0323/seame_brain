@@ -45,9 +45,13 @@ import psutil
 
 # Pin to CPU cores 0–3
 # 프로세르를 모든 cpu 코어에 고정
-available_cores = list(range(psutil.cpu_count()))
-psutil.Process(os.getpid()).cpu_affinity(available_cores)
-
+try:
+    available_cores = list(range(psutil.cpu_count()))
+    psutil.Process(os.getpid()).cpu_affinity(available_cores)
+    print("Sucess to use psutil")
+except:
+    print("Fail to use psutil ")
+    
 # 모듈 검색 경로 추가 , 공용 메세지 큐 설정--> 모든 프로세스 여기서 통신 
 sys.path.append(".")
 from multiprocessing import Queue, Event

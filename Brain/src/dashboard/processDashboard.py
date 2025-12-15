@@ -317,7 +317,7 @@ class processDashboard(WorkerProcess):
         self.memoryUsage = psutil.virtual_memory().percent
         self.cpuTemperature = round(psutil.sensors_temperatures()['cpu_thermal'][0].current)
 
-        eventlet.spawn_after(1, self.update_hardware_data)
+        eventlet.spawn_after(1, self.update_hardware_data) # 1초마다 프론트엔드로 업데이트 
 
 
     def send_heartbeat(self):
