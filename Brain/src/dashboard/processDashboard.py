@@ -36,6 +36,8 @@ import inspect
 import eventlet
 import os
 import time
+import glob
+
 
 from flask import Flask, request
 from flask_socketio import SocketIO
@@ -51,6 +53,36 @@ from src.dashboard.components.calibration import Calibration
 from src.dashboard.components.ip_manger import IpManager
 
 import src.utils.messages.allMessages as allMessages
+
+
+# new component for jetson 
+def _read(p: str):
+    try:
+        with open(p, "r") as f:
+            return f.read().strip()
+    except Exception:
+        return None
+
+def get_jetson_temps_c() -> dict[str, float]:
+    temps = {}
+    for z in sorted(glob.glob("/sys/devices/virtual/thermal/thermal_zone*")):
+        name = _read(z + "/type")
+        raw  = _read(z + "/temp")
+        if not name or not raw:
+            continue
+        try:
+            temps[name] = float(raw) / 1000.0  # milli°C -> °C
+        except ValueError:
+            continue
+    return temps
+
+def get_jetson_cpu_temp_c() -> float | None:
+    temps = get_jetson_temps_c()
+    # Jetson마다 이름이 다를 수 있어서 fallback을 둠
+    return (temps.get("cpu-thermal")
+            or temps.get("tj-thermal")   # 너 출력에도 있음
+            or temps.get("soc0-thermal"))
+
 
 
 class processDashboard(WorkerProcess):
@@ -316,7 +348,8 @@ class processDashboard(WorkerProcess):
         self.cpuCoreUsage = psutil.cpu_percent(interval=None, percpu=False)
         self.memoryUsage = psutil.virtual_memory().percent
         try:
-            self.cpuTemperature = round(psutil.sensors_temperatures()['cpu-thermal'][0].current) # --> 다른 방법으로 연결하기 
+            t = get_jetson_cpu_temp_c()
+            self.cpuTemperature = round(t) if t is not None else None   # 또는 -1 같은 기본값
         except : 
             print("Can not use psutil.sensor_temparatures() in jetson ")
         eventlet.spawn_after(1, self.update_hardware_data) # 1초마다 프론트엔드로 업데이트 
