@@ -55,8 +55,8 @@ class RosCameraThread(ThreadWithStop):
         debugging: bool = False,
         topic_name: str = "/camera/camera/color/image_raw/compressed",
         realsense_cmd: Optional[str] = None,
-        keepalive_sec: float = 0.3,
-        min_frame_interval: float = 0.1,  # fps cap to prevent backlog
+        keepalive_sec: float = 0.5,
+        min_frame_interval: float = 0.3,  # fps cap to prevent backlog
     ):
         super(RosCameraThread, self).__init__(pause=0.01)
         self.queuesList = queuesList
