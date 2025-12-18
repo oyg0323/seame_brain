@@ -1,0 +1,214 @@
+# Copyright (c) 2019, Bosch Engineering Center Cluj and BFMC organizers
+# All rights reserved.
+
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+
+# 1. Redistributions of source code must retain the above copyright notice, this
+#    list of conditions and the following disclaimer.
+
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+#    this list of conditions and the following disclaimer in the documentation
+#    and/or other materials provided with the distribution.
+
+# 3. Neither the name of the copyright holder nor the names of its
+#    contributors may be used to endorse or promote products derived from
+#    this software without specific prior written permission.
+
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+import base64
+import os
+import shlex
+import subprocess
+import time
+from typing import Optional
+
+import cv2
+
+from src.templates.threadwithstop import ThreadWithStop
+from src.utils.messages.messageHandlerSender import messageHandlerSender
+from src.utils.messages.messageHandlerSubscriber import messageHandlerSubscriber
+from src.utils.messages.allMessages import serialCamera, StateChange
+from src.statemachine.systemMode import SystemMode
+
+
+class RosCameraThread(ThreadWithStop):
+    """ROS2 RealSense 이미지 구독 스레드.
+
+    - 필요 시 `realsense2_camera` 노드를 서브프로세스로 실행
+    - ROS2 이미지 토픽을 받아 JPEG -> base64 후 `serialCamera` 채널로 전송
+    - 최근 프레임을 주기적으로 재전송해 프런트 로딩 끊김을 줄임
+    """
+
+    def __init__(
+        self,
+        queuesList,
+        logger,
+        debugging: bool = False,
+        topic_name: str = "/camera/color/image_raw",
+        realsense_cmd: Optional[str] = None,
+        keepalive_sec: float = 1.0,
+    ):
+        super(RosCameraThread, self).__init__(pause=0.01)
+        self.queuesList = queuesList
+        self.logger = logger
+        self.debugging = debugging
+        self.topic_name = topic_name
+        self.keepalive_sec = keepalive_sec
+
+        self.serialCameraSender = messageHandlerSender(self.queuesList, serialCamera)
+        self.stateChangeSubscriber = messageHandlerSubscriber(
+            self.queuesList, StateChange, "lastOnly", True
+        )
+
+        self.realsense_cmd = (
+            realsense_cmd
+            or os.environ.get("REAL_SENSE_CMD", "ros2 run realsense2_camera realsense2_camera_node")
+        )
+        self.realsense_proc: Optional[subprocess.Popen] = None
+
+        self._ros_import_error = False
+        self._rclpy = None
+        self._executor = None
+        self._node = None
+        self._bridge = None
+
+        self._last_payload: Optional[str] = None
+        self._last_emit_ts: float = 0.0
+
+    # ================================ STATE CHANGE ====================================
+    def state_change_handler(self):
+        """대시보드 모드 변경 시 pause/resume 연동."""
+        message = self.stateChangeSubscriber.receive()
+        if message is not None:
+            modeDict = SystemMode[message].value.get("camera", {}).get("thread", {})
+            if modeDict.get("enabled", True):
+                self.resume()
+            else:
+                self.pause()
+
+    # ================================ RUN ============================================
+    def thread_work(self):
+        if self._node is None:
+            self._maybe_start_realsense_node()
+            self._maybe_init_ros()
+            time.sleep(0.1)
+            return
+
+        try:
+            if self._executor is not None:
+                self._executor.spin_once(timeout_sec=0.05)
+        except Exception as exc:
+            print(f"\033[1;97m[ RosCamera ] :\033[0m \033[1;91mERROR\033[0m - spin_once failed: {exc}")
+            time.sleep(0.1)
+
+        now = time.time()
+        if self._last_payload is not None and now - self._last_emit_ts >= self.keepalive_sec:
+            self.serialCameraSender.send(self._last_payload)
+            self._last_emit_ts = now
+
+    # ================================ STOP ============================================
+    def stop(self):
+        try:
+            if self._executor and self._node:
+                self._executor.remove_node(self._node)
+                self._node.destroy_node()
+        except Exception:
+            pass
+
+        try:
+            if self._rclpy is not None and self._rclpy.ok():
+                self._rclpy.shutdown()
+        except Exception:
+            pass
+
+        if self.realsense_proc is not None:
+            self.realsense_proc.terminate()
+            try:
+                self.realsense_proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.realsense_proc.kill()
+        super(RosCameraThread, self).stop()
+
+    # ================================ INTERNALS =======================================
+    def _maybe_start_realsense_node(self):
+        """필요 시 RealSense ROS 노드를 띄움."""
+        if self.realsense_proc is not None or not self.realsense_cmd:
+            return
+        try:
+            args = shlex.split(self.realsense_cmd)
+            self.realsense_proc = subprocess.Popen(
+                args,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            print(f"\033[1;97m[ RosCamera ] :\033[0m \033[1;92mINFO\033[0m - Started RealSense node: {self.realsense_cmd}")
+        except FileNotFoundError:
+            print(f"\033[1;97m[ RosCamera ] :\033[0m \033[1;91mERROR\033[0m - Command not found: {self.realsense_cmd}")
+        except Exception as exc:
+            print(f"\033[1;97m[ RosCamera ] :\033[0m \033[1;91mERROR\033[0m - Failed to start RealSense node: {exc}")
+
+    def _maybe_init_ros(self):
+        """ROS2 초기화 및 구독 설정."""
+        if self._node is not None or self._ros_import_error:
+            return
+
+        try:
+            import rclpy
+            from rclpy.executors import SingleThreadedExecutor
+            from rclpy.node import Node
+            from sensor_msgs.msg import Image
+            from cv_bridge import CvBridge
+        except ImportError as exc:
+            if not self._ros_import_error:
+                print(f"\033[1;97m[ RosCamera ] :\033[0m \033[1;91mERROR\033[0m - ROS2 imports failed: {exc}")
+            self._ros_import_error = True
+            return
+
+        try:
+            if not rclpy.ok():
+                rclpy.init(args=None)
+
+            bridge = CvBridge()
+            serial_sender = self.serialCameraSender
+            last_payload_ref = self
+
+            class RosImageBridgeNode(Node):
+                def __init__(self, topic: str):
+                    super().__init__("ros_camera_bridge")
+                    self.subscription = self.create_subscription(
+                        Image, topic, self.listener_callback, 10
+                    )
+
+                def listener_callback(self, msg):
+                    try:
+                        cv_image = bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+                        ok, encoded = cv2.imencode(".jpg", cv_image)
+                        if not ok:
+                            return
+                        payload = base64.b64encode(encoded.tobytes()).decode("utf-8")
+                        serial_sender.send(payload)
+                        last_payload_ref._last_payload = payload
+                        last_payload_ref._last_emit_ts = time.time()
+                    except Exception as exc2:
+                        self.get_logger().error(f"Image callback failed: {exc2}")
+
+            self._rclpy = rclpy
+            self._bridge = bridge
+            self._node = RosImageBridgeNode(self.topic_name)
+            self._executor = SingleThreadedExecutor()
+            self._executor.add_node(self._node)
+            print(f"\033[1;97m[ RosCamera ] :\033[0m \033[1;92mINFO\033[0m - Subscribed to {self.topic_name}")
+        except Exception as exc:
+            print(f"\033[1;97m[ RosCamera ] :\033[0m \033[1;91mERROR\033[0m - Failed to init ROS2: {exc}")

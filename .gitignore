@@ -43,3 +43,23 @@
 build/
 
 *.venv
+
+
+# Angular / Vite caches
+src/dashboard/frontend/.angular/
+src/dashboard/frontend/node_modules/
+
+# Vite 캐시
+src/dashboard/frontend/.vite/
+
+# npm lock
+src/dashboard/frontend/package-lock.json
+
+
+# Angular build/cache
+src/dashboard/frontend/.angular/
+src/dashboard/frontend/.angular/**
+
+# Runtime logs
+temp/*.log
+temp/**/*.log

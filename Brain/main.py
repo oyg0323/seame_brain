@@ -46,7 +46,7 @@ import psutil
 # Process enable flags
 ENABLE_GATEWAY = True
 ENABLE_DASHBOARD = True
-ENABLE_CAMERA = False
+ENABLE_CAMERA = True
 ENABLE_SEMAPHORES = False
 ENABLE_TRAFFIC_COM = False
 ENABLE_SERIAL_HANDLER = True
@@ -75,8 +75,8 @@ logging.basicConfig(level=logging.INFO)
 from src.gateway.processGateway import processGateway
 from src.dashboard.processDashboard import processDashboard
 
-if ENABLE_CAMERA:
-    from src.hardware.camera.processCamera import processCamera
+
+from src.hardware.camera.processRosCamera import processRosCamera
 
 from src.hardware.serialhandler.processSerialHandler import processSerialHandler
 from src.data.Semaphores.processSemaphores import processSemaphores
@@ -163,7 +163,7 @@ else:
 # Initializing camera
 camera_ready = Event()
 if ENABLE_CAMERA:
-    processCamera = processCamera(queueList, logging, camera_ready, debugging = False)
+    processCamera = processRosCamera(queueList, logging, camera_ready, debugging = False)
 else:
     processCamera = None
 
