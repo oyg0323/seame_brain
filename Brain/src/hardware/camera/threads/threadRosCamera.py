@@ -33,8 +33,6 @@ import subprocess
 import time
 from typing import Optional
 
-import cv2
-
 from src.templates.threadwithstop import ThreadWithStop
 from src.utils.messages.messageHandlerSender import messageHandlerSender
 from src.utils.messages.messageHandlerSubscriber import messageHandlerSubscriber
@@ -46,7 +44,7 @@ class RosCameraThread(ThreadWithStop):
     """ROS2 RealSense 이미지 구독 스레드.
 
     - 필요 시 `realsense2_camera` 노드를 서브프로세스로 실행
-    - ROS2 이미지 토픽을 받아 JPEG -> base64 후 `serialCamera` 채널로 전송
+    - ROS2 압축 이미지 토픽(CompressedImage)을 받아 base64 후 `serialCamera` 채널로 전송
     - 최근 프레임을 주기적으로 재전송해 프런트 로딩 끊김을 줄임
     """
 
@@ -55,7 +53,7 @@ class RosCameraThread(ThreadWithStop):
         queuesList,
         logger,
         debugging: bool = False,
-        topic_name: str = "/camera/color/image_raw",
+        topic_name: str = "/camera/color/image_raw/compressed",
         realsense_cmd: Optional[str] = None,
         keepalive_sec: float = 1.0,
     ):
@@ -81,7 +79,6 @@ class RosCameraThread(ThreadWithStop):
         self._rclpy = None
         self._executor = None
         self._node = None
-        self._bridge = None
 
         self._last_payload: Optional[str] = None
         self._last_emit_ts: float = 0.0
@@ -168,8 +165,7 @@ class RosCameraThread(ThreadWithStop):
             import rclpy
             from rclpy.executors import SingleThreadedExecutor
             from rclpy.node import Node
-            from sensor_msgs.msg import Image
-            from cv_bridge import CvBridge
+            from sensor_msgs.msg import CompressedImage
         except ImportError as exc:
             if not self._ros_import_error:
                 print(f"\033[1;97m[ RosCamera ] :\033[0m \033[1;91mERROR\033[0m - ROS2 imports failed: {exc}")
@@ -180,7 +176,6 @@ class RosCameraThread(ThreadWithStop):
             if not rclpy.ok():
                 rclpy.init(args=None)
 
-            bridge = CvBridge()
             serial_sender = self.serialCameraSender
             last_payload_ref = self
 
@@ -188,16 +183,12 @@ class RosCameraThread(ThreadWithStop):
                 def __init__(self, topic: str):
                     super().__init__("ros_camera_bridge")
                     self.subscription = self.create_subscription(
-                        Image, topic, self.listener_callback, 10
+                        CompressedImage, topic, self.listener_callback, 10
                     )
 
                 def listener_callback(self, msg):
                     try:
-                        cv_image = bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
-                        ok, encoded = cv2.imencode(".jpg", cv_image)
-                        if not ok:
-                            return
-                        payload = base64.b64encode(encoded.tobytes()).decode("utf-8")
+                        payload = base64.b64encode(bytes(msg.data)).decode("utf-8")
                         serial_sender.send(payload)
                         last_payload_ref._last_payload = payload
                         last_payload_ref._last_emit_ts = time.time()
@@ -205,7 +196,6 @@ class RosCameraThread(ThreadWithStop):
                         self.get_logger().error(f"Image callback failed: {exc2}")
 
             self._rclpy = rclpy
-            self._bridge = bridge
             self._node = RosImageBridgeNode(self.topic_name)
             self._executor = SingleThreadedExecutor()
             self._executor.add_node(self._node)

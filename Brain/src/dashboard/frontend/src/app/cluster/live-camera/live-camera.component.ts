@@ -53,7 +53,8 @@ export class LiveCameraComponent {
 
     this.cameraSubscription = this.webSocketService.receiveCamera().subscribe(
       (message) => {
-        this.image = `data:image/png;base64,${message.value}`;
+        // 백엔드에서 JPEG로 인코딩해 오므로 MIME을 jpeg로 지정
+        this.image = `data:image/jpeg;base64,${message.value}`;
         this.loading = false;
         // Reset the loading timeout on each new image
         if (this.loadingTimeout) {
