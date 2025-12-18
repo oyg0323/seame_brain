@@ -53,7 +53,7 @@ class RosCameraThread(ThreadWithStop):
         queuesList,
         logger,
         debugging: bool = False,
-        topic_name: str = "/camera/color/image_raw/compressed",
+        topic_name: str = "/camera/camera/color/image_raw/compressed",
         realsense_cmd: Optional[str] = None,
         keepalive_sec: float = 1.0,
     ):
@@ -102,12 +102,19 @@ class RosCameraThread(ThreadWithStop):
             time.sleep(0.1)
             return
 
+        # rclpy 컨텍스트가 내려갔으면 더 이상 spin 호출하지 않음
+        if self._rclpy is not None and not self._rclpy.ok():
+            time.sleep(0.05)
+            return
+
         try:
             if self._executor is not None:
                 self._executor.spin_once(timeout_sec=0.05)
         except Exception as exc:
+            # 컨텍스트가 이미 shutdown된 경우 반복 에러를 막기 위해 이후 spin을 건너뜀
             print(f"\033[1;97m[ RosCamera ] :\033[0m \033[1;91mERROR\033[0m - spin_once failed: {exc}")
             time.sleep(0.1)
+            return
 
         now = time.time()
         if self._last_payload is not None and now - self._last_emit_ts >= self.keepalive_sec:
@@ -118,6 +125,10 @@ class RosCameraThread(ThreadWithStop):
     def stop(self):
         try:
             if self._executor and self._node:
+                try:
+                    self._executor.shutdown()
+                except Exception:
+                    pass
                 self._executor.remove_node(self._node)
                 self._node.destroy_node()
         except Exception:
