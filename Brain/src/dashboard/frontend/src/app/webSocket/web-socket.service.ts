@@ -74,6 +74,8 @@ export class WebSocketService {
     // url: "http://localhost:5005",
     options: {},
     });
+    // 카메라 프레임을 ArrayBuffer로 받도록 설정
+    this.webSocket.ioSocket.binaryType = 'arraybuffer';
 
     // Listen for all messages from the WebSocket server
     this.webSocket.onAny((eventName: string, data: any) => {
