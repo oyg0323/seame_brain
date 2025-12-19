@@ -50,7 +50,7 @@ class threadGateway(ThreadWithStop):
     # =================================== SUBSCRIBE ======================================
 
     def subscribe(self, message):
-        """This functin will add the pipe into the approved messages list and it will be added into the dictionary of sending
+        """This functin will add the pipe into the approved messages list   and it will be added into the dictionary of sending
         Args:
             message(dictionary): Dictionary received from the multiprocessing queues ( the config one).
         """
@@ -138,8 +138,13 @@ class threadGateway(ThreadWithStop):
         elif "Image" in self.queuesList and not self.queuesList["Image"].empty():
             # 이미지는 최신 1개만 전송하고 나머지는 드롭해 적체 방지
             latest = None
+            drained = 0
             while not self.queuesList["Image"].empty():
                 latest = self.queuesList["Image"].get()
+                drained += 1
+            if drained > 1:
+                # 얼마나 많이 버렸는지 눈으로 확인
+                self.logger.info(f"[Gateway] dropped {drained-1} stale serialCamera frame(s)")
             message = latest
         if message is not None:
             self.send(message)
