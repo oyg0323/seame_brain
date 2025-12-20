@@ -117,7 +117,7 @@ MPC computes optimal control inputs while considering vehicle dynamics, enabling
 ## 📅 Project Timeline
 
 <p align="center">
-  <img src="images/plan_timeline.png" width="800">
+  <img src="images/project_plan.png" width="2000">
 </p>
 
 **Figure X.** Task-level project timeline aligned with competition milestones.
