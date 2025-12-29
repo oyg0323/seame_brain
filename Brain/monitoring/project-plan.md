@@ -1,8 +1,7 @@
-# 🚗 Project Overview
+# 🚗 SEA:ME Project Overview
 
-This document presents the overall project plan, including the software stack, hardware configuration, perception and localization pipeline, and planning and control modules.
+This document presents the overall project plan, including the software stack, hardware configuration, perception and planning and control modules with localization pipeline.
 
----
 
 ## 🧩 Software Stack
 
@@ -12,7 +11,6 @@ This document presents the overall project plan, including the software stack, h
 
 > The system is implemented using a modular ROS 2 architecture to enable real-time processing and efficient inter-node communication.
 
----
 
 ## 🛠 Hardware Configuration
 
@@ -108,6 +106,7 @@ By combining **motion-based estimation (EKF)** with
 
 - Global path planning  
 - Local path planning  
+- Use Ackermann steering model
 - **Model Predictive Control (MPC)**  
 
 MPC computes optimal control inputs while considering vehicle dynamics, enabling accurate and smooth trajectory tracking.
